@@ -99,7 +99,7 @@
     <Reference Include="System.Runtime.Serialization" />
     <Reference Include="System.Web" />
     <Reference Include="System.Windows.Forms" />
-    <Reference Include="System.XML" />
+    <Reference Include="System.Xml" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="WindowsBase" />
   </ItemGroup>
@@ -730,7 +730,7 @@
     <Compile Include="UserControls\MyPictureBox.cs">
       <SubType>Component</SubType>
     </Compile>
-    <Compile Include="UserControls\MyPictureBox.designer.cs">
+    <Compile Include="UserControls\MyPictureBox.Designer.cs">
       <DependentUpon>MyPictureBox.cs</DependentUpon>
     </Compile>
     <Compile Include="UserControls\NumericInput\ColoredBorderControl.cs">
