@@ -138,12 +138,12 @@ namespace LaserGRBL.SvgConverter
 
 		public static string frmtCode(int number)      // convert int to string using format pattern
 		{ return number.ToString(formatCode); }
-		public static string frmtNum(float number)     // convert float to string using format pattern
-		{ return number.ToString(formatNumber); }
-		public static string frmtNum(double number)     // convert double to string using format pattern
-		{ return number.ToString(formatNumber); }
+        public static string frmtNum(float number)     // convert float to string using format pattern
+        { return (Math.Abs(number) < 1e-7 ? 0 : number).ToString(formatNumber); }
+        public static string frmtNum(double number)     // convert double to string using format pattern
+        { return (Math.Abs(number) < 1e-7 ? 0 : number).ToString(formatNumber); }
 
-		private static StringBuilder secondMove = new StringBuilder();
+        private static StringBuilder secondMove = new StringBuilder();
 		private static bool applyXYFeedRate = true; // apply XY feed after each Pen-move
 
 		public static void SpindleOn(StringBuilder gcodeString, string cmt = "")
