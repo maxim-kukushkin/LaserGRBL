@@ -315,6 +315,24 @@ namespace LaserGRBL {
         }
         
         /// <summary>
+        ///   Cerca una stringa localizzata simile a Test notification has been sent, please check your phone!.
+        /// </summary>
+        internal static string BoxTelegramSettingText {
+            get {
+                return ResourceManager.GetString("BoxTelegramSettingText", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Cerca una stringa localizzata simile a Telegram notification.
+        /// </summary>
+        internal static string BoxTelegramSettingTitle {
+            get {
+                return ResourceManager.GetString("BoxTelegramSettingTitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Cerca una stringa localizzata simile a No changes... nothing to write!.
         /// </summary>
         internal static string BoxWriteConfigNoChange {
@@ -877,6 +895,24 @@ namespace LaserGRBL {
         internal static string WarnSoftLimitTitle {
             get {
                 return ResourceManager.GetString("WarnSoftLimitTitle", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Cerca una stringa localizzata simile a Freely assigning the width and height of the work can lead to distortion of the image. Do you want to continue?.
+        /// </summary>
+        internal static string WarnUnlockProportionText {
+            get {
+                return ResourceManager.GetString("WarnUnlockProportionText", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Cerca una stringa localizzata simile a Warning.
+        /// </summary>
+        internal static string WarnUnlockProportionTitle {
+            get {
+                return ResourceManager.GetString("WarnUnlockProportionTitle", resourceCulture);
             }
         }
         

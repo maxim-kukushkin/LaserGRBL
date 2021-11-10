@@ -16,6 +16,8 @@ namespace LaserGRBL.RasterConverter
 	/// </summary>
 	public partial class ConvertSizeAndOptionForm : Form
 	{
+		static bool ratiolock = true;
+
 		GrblCore mCore;
 		bool supportPWM = Settings.GetObject("Support Hardware PWM", true);
 
@@ -48,19 +50,6 @@ namespace LaserGRBL.RasterConverter
 
 			CBLaserON.Items.Add(LaserOptions[0]);
 			CBLaserON.Items.Add(LaserOptions[1]);
-
-			// For Marlin, we must change LaserOn & Laser Off command :
-			//if (core.Type != Firmware.Marlin)
-			//{
-			//    CBLaserON.Items.Add("M3");
-			//    if (core.Configuration.LaserMode)
-			//        CBLaserON.Items.Add("M4");
-			//}
-			//else
-			//{
-			//    CBLaserON.Items.Add("M106 P1");
-			//    CBLaserOFF.Items.Add("M107 P1");
-			//}
 		}
 
 		private void AssignMinMaxLimit()
@@ -107,12 +96,7 @@ namespace LaserGRBL.RasterConverter
 			else
 				CBLaserON.SelectedItem = LaserOptions[1];
 
-			IP.LaserOff = "M5"; //Settings.GetObject("GrayScaleConversion.Gcode.LaserOptions.LaserOff", "M5");
-
-			//if (CBLaserOFF.Items.Contains(IP.LaserOff))
-			//	CBLaserOFF.SelectedItem = IP.LaserOff;
-			//else
-			//	CBLaserOFF.SelectedIndex = 0;
+			IP.LaserOff = "M5"; 
 
 			IIMinPower.CurrentValue = IP.MinPower = Settings.GetObject("GrayScaleConversion.Gcode.LaserOptions.PowerMin", 0);
 			IIMaxPower.CurrentValue = IP.MaxPower = Settings.GetObject("GrayScaleConversion.Gcode.LaserOptions.PowerMax", (int)mCore.Configuration.MaxPWM);
@@ -126,6 +110,8 @@ namespace LaserGRBL.RasterConverter
 
 			RefreshPerc();
 			ShowDialog(parent);
+
+			ratiolock = KeepSizeRatio;
 		}
 
 		private void InitImageSize()
@@ -139,15 +125,24 @@ namespace LaserGRBL.RasterConverter
 			}
 			else
 			{
-				if (IP.Original.Height < IP.Original.Width)
+				KeepSizeRatio = ratiolock;
+				if (KeepSizeRatio)
 				{
-					IISizeW.CurrentValue = Settings.GetObject("GrayScaleConversion.Gcode.BiggestDimension", 100F);
-					IISizeH.CurrentValue = IP.WidthToHeight(IISizeW.CurrentValue);
+					if (IP.Original.Height < IP.Original.Width)
+					{
+						IISizeW.CurrentValue = Settings.GetObject("GrayScaleConversion.Gcode.ImageSize.W", 100F);
+						IISizeH.CurrentValue = IP.WidthToHeight(IISizeW.CurrentValue);
+					}
+					else
+					{
+						IISizeH.CurrentValue = Settings.GetObject("GrayScaleConversion.Gcode.ImageSize.H", 100F);
+						IISizeW.CurrentValue = IP.HeightToWidht(IISizeH.CurrentValue);
+					}
 				}
 				else
 				{
-					IISizeH.CurrentValue = Settings.GetObject("GrayScaleConversion.Gcode.BiggestDimension", 100F);
-					IISizeW.CurrentValue = IP.HeightToWidht(IISizeH.CurrentValue);
+					IISizeW.CurrentValue = Settings.GetObject("GrayScaleConversion.Gcode.ImageSize.W", 100F);
+					IISizeH.CurrentValue = Settings.GetObject("GrayScaleConversion.Gcode.ImageSize.H", 100F);
 				}
 			}
 		}
@@ -241,13 +236,26 @@ namespace LaserGRBL.RasterConverter
 
 		private void IISizeW_OnTheFlyValueChanged(object sender, float OldValue, float NewValue, bool ByUser)
 		{
-			if (ByUser)
+			if (ByUser && KeepSizeRatio)
 				IISizeH.CurrentValue = IP.WidthToHeight(NewValue);
 		}
 
 		private void IISizeH_OnTheFlyValueChanged(object sender, float OldValue, float NewValue, bool ByUser)
 		{
-			if (ByUser) IISizeW.CurrentValue = IP.HeightToWidht(NewValue);
+			if (ByUser && KeepSizeRatio)
+				IISizeW.CurrentValue = IP.HeightToWidht(NewValue);
+		}
+
+		private bool KeepSizeRatio
+		{
+			get
+			{
+				return !BtnUnlockProportion.UseAltImage;
+			}
+			set
+			{
+				BtnUnlockProportion.UseAltImage = !value;
+			}
 		}
 
 		private void CbAutosize_CheckedChanged(object sender, EventArgs e)
@@ -326,6 +334,22 @@ namespace LaserGRBL.RasterConverter
 		{
 			IIOffsetY.CurrentValue = -(IISizeH.CurrentValue / 2);
 			IIOffsetX.CurrentValue = -(IISizeW.CurrentValue / 2);
+		}
+
+		private void BtnUnlockProportion_Click(object sender, EventArgs e)
+		{
+			if (KeepSizeRatio && MessageBox.Show(Strings.WarnUnlockProportionText, Strings.WarnUnlockProportionTitle, MessageBoxButtons.OKCancel, MessageBoxIcon.Warning) == DialogResult.OK)
+				KeepSizeRatio = false;
+			else
+				KeepSizeRatio = true;
+			
+			if (KeepSizeRatio)
+			{
+				if (IP.Original.Height < IP.Original.Width)
+					IISizeH.CurrentValue = IP.WidthToHeight(IISizeW.CurrentValue);
+				else
+					IISizeW.CurrentValue = IP.HeightToWidht(IISizeH.CurrentValue);
+			}
 		}
 	}
 }

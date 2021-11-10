@@ -48,6 +48,7 @@ namespace LaserGRBL.SvgConverter
 
 		public System.Drawing.PointF UserOffset = new System.Drawing.PointF(0,0);
 		public float GCodeXYFeed = 2000;        // XY feed to apply for G1
+        private double scaledError = 1.0;
 
 		public bool svgConvertToMM = true;
 		private float gcodeScale = 1;                    // finally scale with this factor if svgScaleApply and svgMaxSize
@@ -65,7 +66,7 @@ namespace LaserGRBL.SvgConverter
 		//private bool fromText = false;
 
 		Regex RemoveInvalidUnicode = new Regex(@"[^\x09\x0A\x0D\x20-\uD7FF\uE000-\uFFFD\u10000-u10FFFF]+", RegexOptions.Compiled);
-		public string convertFromText(string text, bool importMM = false)
+		public string convertFromText(string text, GrblCore core, bool importMM = false)
 		{
 			//fromText = true;
 			importInMM = importMM;
@@ -76,18 +77,18 @@ namespace LaserGRBL.SvgConverter
 			text = RemoveInvalidUnicode.Replace(text, string.Empty);
 			svgCode = XElement.Parse(text, LoadOptions.None);
 
-			return convertSVG(svgCode);
+			return convertSVG(svgCode, core);
 		}
 
-		public string convertFromFile(string file)
+		public string convertFromFile(string file, GrblCore core)
 		{
 			string xml = System.IO.File.ReadAllText(file);
-			return convertFromText(xml, true);
+			return convertFromText(xml, core, true);
 		}
 
-		private string convertSVG(XElement svgCode)
+		private string convertSVG(XElement svgCode, GrblCore core)
 		{
-			gcode.setup();          // initialize GCode creation (get stored settings for export)
+			gcode.setup(core);          // initialize GCode creation (get stored settings for export)
 			gcode.setRapidNum(Settings.GetObject("Disable G0 fast skip", false) ? 1 : 0);
 
 			gcode.PutInitialCommand(gcodeString);
@@ -180,7 +181,8 @@ namespace LaserGRBL.SvgConverter
 								 //    tmp.M11 = 1 / factor_Mm2Px; // 3.543307;         // https://www.w3.org/TR/SVG/coords.html#Units
 				if (vbWidth > 0)
 				{
-					tmp.M11 = scale * svgWidthPx / vbWidth;
+					scaledError = scale * svgWidthPx / vbWidth;
+					tmp.M11 = scaledError;
 					tmp.OffsetX = vbOffX * scale;   // svgWidthUnit / vbWidth;
 				}
 			}
@@ -856,7 +858,7 @@ namespace LaserGRBL.SvgConverter
 								cx2 = lastX + floatArgs[rep + 2]; cy2 = lastY + floatArgs[rep + 3];
 								cx3 = lastX + floatArgs[rep + 4]; cy3 = lastY + floatArgs[rep + 5];
 							}
-							points = new Point[4];
+							var points = new Point[4];
 							points[0] = new Point(lastX, lastY);
 							points[1] = new Point(cx1, cy1);
 							points[2] = new Point(cx2, cy2);
@@ -897,7 +899,7 @@ namespace LaserGRBL.SvgConverter
 							cx2 = lastX + floatArgs[rep]; cy2 = lastY + floatArgs[rep + 1];
 							cx3 = lastX + floatArgs[rep + 2]; cy3 = lastY + floatArgs[rep + 3];
 						}
-						points = new Point[4];
+						var points = new Point[4];
 						points[0] = new Point(lastX, lastY);
 						points[1] = new Point(cxMirror, cyMirror);
 						points[2] = new Point(cx2, cy2);
@@ -940,7 +942,7 @@ namespace LaserGRBL.SvgConverter
 						float qpy1 = (cy2 - lastY) * 2 / 3 + lastY;     // qubic function
 						float qpx2 = (cx2 - cx3) * 2 / 3 + cx3;
 						float qpy2 = (cy2 - cy3) * 2 / 3 + cy3;
-						points = new Point[4];
+						var points = new Point[4];
 						points[0] = new Point(lastX, lastY);
 						points[1] = new Point(qpx1, qpy1);
 						points[2] = new Point(qpx2, qpy2);
@@ -981,7 +983,7 @@ namespace LaserGRBL.SvgConverter
 						float qpy1 = (cyMirror - lastY) * 2 / 3 + lastY;     // qubic function
 						float qpx2 = (cxMirror - cx3) * 2 / 3 + cx3;
 						float qpy2 = (cyMirror - cy3) * 2 / 3 + cy3;
-						points = new Point[4];
+						var points = new Point[4];
 						points[0] = new Point(lastX, lastY);
 						points[1] = new Point(qpx1, qpy1);
 						points[2] = new Point(qpx2, qpy2);
@@ -1077,7 +1079,7 @@ namespace LaserGRBL.SvgConverter
 				double dxe = t * (cosPhi * rx * sinTheta2 + sinPhi * ry * cosTheta2);
 				double dye = t * (sinPhi * rx * sinTheta2 - cosPhi * ry * cosTheta2);
 
-				points = new Point[4];
+				var points = new Point[4];
 				points[0] = new Point(startX, startY);
 				points[1] = new Point((startX + dx1), (startY + dy1));
 				points[2] = new Point((endpointX + dxe), (endpointY + dye));
@@ -1106,10 +1108,16 @@ namespace LaserGRBL.SvgConverter
 
 		/// <summary>
 		/// Calculate Bezier line segments
-		/// from http://stackoverflow.com/questions/13940983/how-to-draw-bezier-curve-by-several-points
 		/// </summary>
-		private Point[] points;
 		private Point[] GetBezierApproximation(Point[] controlPoints, int outputSegmentCount)
+		{
+			if (UseLegacyBezier)
+				return GetBezierApproximationOld(controlPoints, outputSegmentCount);
+			else
+				return BezierTools.FlattenTo(controlPoints, .2 / scaledError).ToArray();
+		}
+
+        private Point[] GetBezierApproximationOld(Point[] controlPoints, int outputSegmentCount)
 		{
 			Point[] points = new Point[outputSegmentCount + 1];
 			for (int i = 0; i <= outputSegmentCount; i++)
@@ -1128,6 +1136,7 @@ namespace LaserGRBL.SvgConverter
 			double x = (1 - t) * P0.X + t * P1.X;
 			return new Point(x, (1 - t) * P0.Y + t * P1.Y);
 		}
+
 
 		// Prepare G-Code
 
@@ -1213,7 +1222,8 @@ namespace LaserGRBL.SvgConverter
 		private bool isReduceOk = false;
 		private bool rejectPoint = false;
 		private double lastGCX = 0, lastGCY = 0, lastSetGCX = 0, lastSetGCY = 0, distance;
-
+		
+		public bool UseLegacyBezier { get; set; }
 		public bool SvgScaleApply { get => svgScaleApply; set => svgScaleApply = value; }
 		public float SvgMaxSize { get => svgMaxSize; set => svgMaxSize = value; }
 

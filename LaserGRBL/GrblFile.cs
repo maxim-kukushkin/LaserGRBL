@@ -99,7 +99,7 @@ namespace LaserGRBL
 			RiseOnFileLoaded(filename, elapsed);
 		}
 
-		public void LoadImportedSVG(string filename, bool append)
+		public void LoadImportedSVG(string filename, bool append, GrblCore core)
 		{
 			RiseOnFileLoading(filename);
 
@@ -112,8 +112,9 @@ namespace LaserGRBL
 
 			SvgConverter.GCodeFromSVG converter = new SvgConverter.GCodeFromSVG();
 			converter.GCodeXYFeed = Settings.GetObject("GrayScaleConversion.VectorizeOptions.BorderSpeed", 1000);
+			converter.UseLegacyBezier = !Settings.GetObject($"Vector.UseSmartBezier", true);
 
-			string gcode = converter.convertFromFile(filename);
+			string gcode = converter.convertFromFile(filename, core);
 			string[] lines = gcode.Split(Environment.NewLine.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
 			foreach (string l in lines)
 			{
@@ -326,7 +327,7 @@ namespace LaserGRBL
 							if (c.pwm)
 								list.Add(new GrblCommand(String.Format("{0} S0", c.lOn))); //laser on and power to zero
 							else
-								list.Add(new GrblCommand(String.Format("{0} S255", c.lOff))); //laser off and power to max power
+								list.Add(new GrblCommand(String.Format($"{c.lOff} S{core.Configuration.MaxPWM}"))); //laser off and power to max power
 
 							//set speed to markspeed
 							// For marlin, need to specify G1 each time :
@@ -349,7 +350,7 @@ namespace LaserGRBL
 			if (supportPWM)
 				list.Add(new GrblCommand($"{c.lOn} S0"));   //laser on and power to 0
 			else
-				list.Add(new GrblCommand($"{c.lOff} S{c.maxPower}"));   //laser off and power to maxPower
+				list.Add(new GrblCommand($"{c.lOff} S{core.Configuration.MaxPWM}"));   //laser off and power to maxPower
 
 			//trace raster filling
 			if (flist != null)
@@ -438,7 +439,7 @@ namespace LaserGRBL
 		}
 
 		private string skipcmd = "G0";
-		public void LoadImageL2L(Bitmap bmp, string filename, L2LConf c, bool append)
+		public void LoadImageL2L(Bitmap bmp, string filename, L2LConf c, bool append, GrblCore core)
 		{
 
 			skipcmd = Settings.GetObject("Disable G0 fast skip", false) ? "G1" : "G0";
@@ -462,7 +463,7 @@ namespace LaserGRBL
 			if (c.pwm)
 				list.Add(new GrblCommand(String.Format("{0} S0", c.lOn))); //laser on and power to zero
 			else
-				list.Add(new GrblCommand(String.Format("{0} S255", c.lOff))); //laser off and power to maxpower
+				list.Add(new GrblCommand($"{c.lOff} S{core.Configuration.MaxPWM}")); //laser off and power to maxpower
 
 			//set speed to markspeed						
 			// For marlin, need to specify G1 each time :
@@ -1003,7 +1004,7 @@ namespace LaserGRBL
 			}
 		}
 
-		internal void LoadImageCenterline(Bitmap bmp, string filename, bool useCornerThreshold, int cornerThreshold, bool useLineThreshold, int lineThreshold, L2LConf conf, bool append)
+		internal void LoadImageCenterline(Bitmap bmp, string filename, bool useCornerThreshold, int cornerThreshold, bool useLineThreshold, int lineThreshold, L2LConf conf, bool append, GrblCore core)
 		{
 
 			RiseOnFileLoading(filename);
@@ -1029,8 +1030,9 @@ namespace LaserGRBL
 			converter.SvgMaxSize = (float)Math.Max(bmp.Width / 10.0, bmp.Height / 10.0);
 			converter.UserOffset.X = Settings.GetObject("GrayScaleConversion.Gcode.Offset.X", 0F);
 			converter.UserOffset.Y = Settings.GetObject("GrayScaleConversion.Gcode.Offset.Y", 0F);
+			converter.UseLegacyBezier = !Settings.GetObject($"Vector.UseSmartBezier", true);
 
-			string gcode = converter.convertFromText(content);
+			string gcode = converter.convertFromText(content, core);
 			string[] lines = gcode.Split(Environment.NewLine.ToCharArray(), StringSplitOptions.RemoveEmptyEntries);
 			foreach (string l in lines)
 			{

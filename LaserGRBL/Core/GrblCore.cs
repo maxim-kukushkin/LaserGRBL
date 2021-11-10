@@ -52,16 +52,17 @@ namespace LaserGRBL
 			{ get { return new ThreadingMode(500, 5, 1, 1, 0, "Fast"); } }
 
 			public static ThreadingMode UltraFast
-			{ get { return new ThreadingMode(200, 1, 0, 0, 0, "UltraFast"); } }
+			{ get { return new ThreadingMode(250, 1, 0, 0, 0, "UltraFast"); } }
 
 			public static ThreadingMode Insane
-			{ get { return new ThreadingMode(100, 1, 0, 0, 0, "Insane"); } }
+			{ get { return new ThreadingMode(200, 1, 0, 0, 0, "Insane"); } }
 
 			public override string ToString()
 			{ return Name; }
 
 			public override bool Equals(object obj)
 			{ return obj != null && obj is ThreadingMode && ((ThreadingMode)obj).Name == Name; }
+
             public override int GetHashCode()
             {
                 return base.GetHashCode();
@@ -298,7 +299,7 @@ namespace LaserGRBL
 		protected Tools.ElapsedFromEvent debugLastStatusDelay;
 		protected Tools.ElapsedFromEvent debugLastMoveOrActivityDelay;
 
-		private ThreadingMode mThreadingMode = ThreadingMode.UltraFast;
+		private ThreadingMode mThreadingMode = ThreadingMode.Fast;
 		private HotKeysManager mHotKeyManager;
 
 		public UsageStats.UsageCounters UsageCounters;
@@ -315,7 +316,18 @@ namespace LaserGRBL
 			debugLastStatusDelay = new Tools.ElapsedFromEvent();
 			debugLastMoveOrActivityDelay = new Tools.ElapsedFromEvent();
 
-			mThreadingMode = Settings.GetObject("Threading Mode", ThreadingMode.UltraFast);
+            //with version 4.5.0 default ThreadingMode change from "UltraFast" to "Fast"
+            if (!Settings.IsNewFile && Settings.PrevVersion < new Version(4, 5, 0)) 
+            {
+                ThreadingMode CurrentMode = Settings.GetObject("Threading Mode", ThreadingMode.Fast);
+                if (Equals(CurrentMode, ThreadingMode.Insane) || Equals(CurrentMode, ThreadingMode.UltraFast))
+                    Settings.SetObject("Threading Mode", ThreadingMode.Fast);
+            }
+
+            mThreadingMode = Settings.GetObject("Threading Mode", ThreadingMode.Fast);
+
+            
+
 			QueryTimer = new Tools.PeriodicEventTimer(TimeSpan.FromMilliseconds(mThreadingMode.StatusQuery), false);
 			TX = new Tools.ThreadObject(ThreadTX, 1, true, "Serial TX Thread", StartTX);
 			RX = new Tools.ThreadObject(ThreadRX, 1, true, "Serial RX Thread", null);
@@ -391,10 +403,7 @@ namespace LaserGRBL
 			set
 			{
 				if (value.Count > 0 && value.GrblVersion != null)
-				{
 					Settings.SetObject("Grbl Configuration", value);
-					Settings.Save();
-				}
 			}
 		}
 
@@ -457,9 +466,7 @@ namespace LaserGRBL
 				if (GrblVersion == null || !GrblVersion.Equals(value))
 				{
 					CSVD.LoadAppropriateSettings(value);
-
 					Settings.SetObject("Last GrblVersion known", value);
-					Settings.Save();
 				}
 			}
 		}
@@ -470,7 +477,11 @@ namespace LaserGRBL
 			Logger.LogMessage("Issue detector", "{0} [{1},{2},{3}]", issue, FreeBuffer, GrblBuffer, GrblBlock);
 
 			if (issue > 0) //negative numbers indicate issue caused by the user, so must not be report to UI
+			{
 				RiseIssueDetected(issue);
+				Telegram.NotifyEvent(String.Format("<b>Job Issue</b>\n{0}", issue));
+				SoundEvent.PlaySound(SoundEvent.EventId.Fatal);
+			}
 		}
 
 		void RiseJogStateChange(bool jog)
@@ -1516,10 +1527,8 @@ namespace LaserGRBL
                 //bool noMovement = !executingM4 && debugLastMoveDelay.ElapsedTime > TimeSpan.FromSeconds(10);
 
                 if (noQueryResponse)
-                {
                     SetIssue(DetectedIssue.StopResponding);
-					SoundEvent.PlaySound(SoundEvent.EventId.Fatal); 
-                }
+
 				//else if (noMovement)
 				//	SetIssue(DetectedIssue.StopMoving);
 			}
@@ -1650,7 +1659,7 @@ namespace LaserGRBL
 		// this feature can work only if $10=3 (status report with buffer size report enabled)
 		private void HandleMissingOK() 
 		{
-			if (BufferIsFull() && HasPendingCommands() && MachineSayBufferFree() && MachineNotMovingOrReply() && MachineStatus == MacStatus.Run)
+			if (HasPendingCommands() && !BufferIsFree() && MachineSayBufferFree() && MachineNotMovingOrReply() && MachineStatus == MacStatus.Run)
 				CreateFakeOK(mPending.Count); //rispondi "ok" a tutti i comandi pending
 		}
 
@@ -1667,6 +1676,7 @@ namespace LaserGRBL
 
 		private bool MachineNotMovingOrReply() => debugLastMoveOrActivityDelay.ElapsedTime > TimeSpan.FromSeconds(10);
 		private bool MachineSayBufferFree() => mGrblBuffer == BufferSize;
+		private bool BufferIsFree() => mUsedBuffer == 0;
 		private bool HasPendingCommands() => mPending.Count > 0;
 
 		protected virtual void ManageReceivedLine(string rline)
@@ -1683,6 +1693,8 @@ namespace LaserGRBL
 				ManageOrturFirmwareMessage(rline);
 			else if (IsStandardWelcomeMessage(rline))
 				ManageStandardWelcomeMessage(rline);
+			else if (IsBrokenOkMessage(rline))
+				ManageBrokenOkMessage(rline);
 			else
 				ManageGenericMessage(rline);
 		}
@@ -1693,6 +1705,7 @@ namespace LaserGRBL
 		private bool IsOrturModelMessage(string rline) => rline.StartsWith("Ortur ");
 		private bool IsOrturFirmwareMessage(string rline) => rline.StartsWith("OLF");
 		private bool IsStandardWelcomeMessage(string rline) => rline.StartsWith("Grbl");
+		private bool IsBrokenOkMessage(string rline) => rline.ToLower().Contains("ok");
 
 		private void ManageGenericMessage(string rline)
 		{
@@ -1881,26 +1894,32 @@ namespace LaserGRBL
 		{
 			string wco = p.Substring(4, p.Length - 4);
 			string[] xyz = wco.Split(",".ToCharArray());
-			SetWCO(new GPoint(ParseFloat(xyz[0]), ParseFloat(xyz[1]), ParseFloat(xyz[2])));
+			SetWCO(new GPoint(ParseFloat(xyz,0), ParseFloat(xyz,1), ParseFloat(xyz,2)));
 		}
 
 		private void ParseWPos(string p)
 		{
 			string wpos = p.Substring(5, p.Length - 5);
 			string[] xyz = wpos.Split(",".ToCharArray());
-			SetMPosition(mWCO + new GPoint(ParseFloat(xyz[0]), ParseFloat(xyz[1]), ParseFloat(xyz[2])));
+			SetMPosition(mWCO + new GPoint(ParseFloat(xyz,0), ParseFloat(xyz,1), ParseFloat(xyz,2)));
 		}
 
 		private void ParseMPos(string p)
 		{
 			string mpos = p.Substring(5, p.Length - 5);
 			string[] xyz = mpos.Split(",".ToCharArray());
-			SetMPosition(new GPoint(ParseFloat(xyz[0]), ParseFloat(xyz[1]), ParseFloat(xyz[2])));
+			SetMPosition(new GPoint(ParseFloat(xyz,0), ParseFloat(xyz,1), ParseFloat(xyz,2)));
 		}
 
 		protected static float ParseFloat(string value)
 		{
 			return float.Parse(value, NumberFormatInfo.InvariantInfo);
+		}
+
+		protected static float ParseFloat(string [] arr, int idx, float defval = 0.0f)
+		{
+			if (arr == null || idx < 0 || idx >= arr.Length) return defval;
+			return float.Parse(arr[idx], NumberFormatInfo.InvariantInfo);
 		}
 
 		private void ParseBf(string p)
@@ -1935,7 +1954,7 @@ namespace LaserGRBL
 		{
 			string sfs = p.Substring(3, p.Length - 3);
 			string[] fs = sfs.Split(",".ToCharArray());
-			SetFS(ParseFloat(fs[0]), ParseFloat(fs[1]));
+			SetFS(ParseFloat(fs,0), ParseFloat(fs,1));
 		}
 
 		protected virtual void ParseF(string p)
@@ -1963,6 +1982,14 @@ namespace LaserGRBL
 		{
 			mWCO = wco;
 			mTP.LastKnownWCO = wco; //remember last wco for job resume
+		}
+
+
+		protected void ManageBrokenOkMessage(string rline) //
+		{
+			mSentPtr.Add(new GrblMessage("Handle broken ok!", false));
+			Logger.LogMessage("CommandResponse", "Broken \"ok\" message: [{0}]", rline);
+			ManageCommandResponse("ok");
 		}
 
 		protected void ManageCommandResponse(string rline)
@@ -2119,13 +2146,10 @@ namespace LaserGRBL
 
 		protected virtual void ParseMachineStatus(string data)
 		{
-			MacStatus var = MacStatus.Disconnected;
-
 			if (data.Contains(":"))
 				data = data.Substring(0, data.IndexOf(':'));
 
-			try { var = (MacStatus)Enum.Parse(typeof(MacStatus), data); }
-			catch (Exception ex) { Logger.LogException("ParseMachineStatus", ex); }
+			MacStatus var = (MacStatus)Enum.Parse(typeof(MacStatus), data);
 
 			if (InProgram && var == MacStatus.Idle) //bugfix for grbl sending Idle on G4
 				var = MacStatus.Run;
@@ -2157,6 +2181,7 @@ namespace LaserGRBL
 				OnJobEnd();
 
 				SoundEvent.PlaySound(SoundEvent.EventId.Success);
+				Telegram.NotifyEvent(String.Format("<b>Job Executed</b>\n{0} lines, {1} errors\nTime: {2}", file.Count, mTP.ErrorCount, Tools.Utils.TimeSpanToString(mTP.TotalJobTime, Tools.Utils.TimePrecision.Second, Tools.Utils.TimePrecision.Second, ",", true)));
 
 				ForceStatusIdle();
 			}
@@ -2390,7 +2415,6 @@ namespace LaserGRBL
 			mHotKeyManager.Clear();
 			mHotKeyManager.AddRange(mLocalList);
 			Settings.SetObject("Hotkey Setup", mHotKeyManager);
-			Settings.Save();
 		}
 
 		//internal void HKCustomButton(int index)
@@ -2759,6 +2783,82 @@ namespace LaserGRBL
 
 		public GrblCore.DetectedIssue LastIssue
 		{ get { return mLastIssue; } }
+
+
+		//private Tools.ElapsedFromEvent crono = new Tools.ElapsedFromEvent();
+
+		//private string LastJobFileName => System.IO.Path.Combine(GrblCore.DataPath, "lastjob.nc");
+		//private string LastPositionFileName => System.IO.Path.Combine(GrblCore.DataPath, "jobprogress.dat");
+
+		//public void LoadFile(GrblFile file)
+		//{
+		//	try
+		//	{
+		//		if (System.IO.File.Exists(LastJobFileName))
+		//			System.IO.File.Delete(LastJobFileName);
+		//		if (file.Count > 0)
+		//			file.SaveProgram(LastJobFileName, false, false, false, 1);
+		//	}
+		//	catch
+		//	{ }
+		//}
+
+		//public void JobBegin()
+		//{
+		//	try
+		//	{
+		//		if (System.IO.File.Exists(LastPositionFileName))
+		//			System.IO.File.Delete(LastPositionFileName);
+
+		//		crono.Start();
+		//		WriteCurrentPosition();
+		//	}
+		//	catch
+		//	{ }
+		//}
+
+		//public void JobEnd()
+		//{
+		//	//try
+		//	//{
+		//	//	if (System.IO.File.Exists(LastPositionFileName))
+		//	//		System.IO.File.Delete(LastPositionFileName);
+		//	//}
+		//	//catch
+		//	//{ }
+		//}
+
+		//public void JobProgress()
+		//{
+		//	try
+		//	{
+		//		if (crono.ElapsedTime > TimeSpan.FromSeconds(10))
+		//		{
+		//			crono.Start();
+		//			WriteCurrentPosition();
+		//		}
+		//	}
+		//	catch
+		//	{ }
+		//}
+
+		//private void WriteCurrentPosition()
+		//{
+		//	using (System.IO.FileStream fs = new System.IO.FileStream(LastPositionFileName, System.IO.FileMode.Create))
+		//	{
+		//		using (System.IO.BinaryWriter w = new System.IO.BinaryWriter(fs))
+		//		{
+		//			int exec = Executed;
+		//			int sent = Sent;
+		//			int target = Target;
+
+		//			w.Write(exec);
+		//			w.Write(sent);
+		//			w.Write(target);
+		//			w.Write(exec ^ sent ^ target ^ 0x55555555); //checksum valid data
+		//		}
+		//	}
+		//}
 	}
 
 	[Serializable]
